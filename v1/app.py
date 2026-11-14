@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import streamlit as st  # noqa: E402
 
 from v1.game_master import GameMaster, get_api_key, get_model_name, make_client  # noqa: E402
-from v1.prompts import OPENING_MESSAGE  # noqa: E402
+from v1.prompts import ESCAPE_MARKER, OPENING_MESSAGE  # noqa: E402
 
 st.set_page_config(page_title="AI Escape Room - V1", page_icon="🔐")
 
@@ -80,13 +80,22 @@ if prompt:
         st.markdown(prompt)
 
     with st.chat_message("assistant", avatar="🧙"):
-        with st.spinner("The Game Master is thinking..."):
-            try:
-                reply = gm.send(prompt)
-            except Exception as exc:  # V1: simple error display, no retries
-                reply = f"⚠️ Could not reach Gemini: `{exc}`"
-                gm.history.pop()  # drop the unanswered player turn
-        st.markdown(reply)
+        placeholder = st.empty()
+        placeholder.markdown("_The Game Master is thinking..._")
+        try:
+            # Minor speed patch: show the reply while Gemini is still writing it.
+            shown = ""
+            for chunk in gm.send_stream(prompt):
+                shown += chunk
+                visible = shown.replace(ESCAPE_MARKER, "")
+                if "[" in visible:  # don't flash a half-written [ESCAPED] marker
+                    visible = visible[: visible.rindex("[")]
+                placeholder.markdown(visible + " ▌")
+            reply = gm.last_reply
+        except Exception as exc:  # V1: simple error display, no retries
+            reply = f"⚠️ Could not reach Gemini: `{exc}`"
+            gm.history.pop()  # drop the unanswered player turn
+        placeholder.markdown(reply)
     st.session_state.messages.append({"role": "assistant", "content": reply})
     if gm.escaped:
         st.rerun()

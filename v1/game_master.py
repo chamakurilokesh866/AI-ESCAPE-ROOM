@@ -40,6 +40,21 @@ def make_client(api_key: str | None = None) -> genai.Client:
     return genai.Client(api_key=key)
 
 
+def fast_thinking_config(model: str) -> types.ThinkingConfig:
+    """Minor speed patch (added with V2): use the model's lowest thinking level.
+
+    gemini-3.8-flash thinks at MEDIUM by default, which made every V1 reply
+    slow. LOW is its lowest level (MINIMAL is rejected); Gemini 2.x uses a
+    thinking budget of 0 instead.
+    """
+    name = model.lower().removeprefix("models/")
+    if name.startswith("gemini-2"):
+        return types.ThinkingConfig(thinking_budget=0)
+    if "lite" in name or name.startswith(("gemini-3.6-flash", "gemini-3-flash", "gemini-3.5-flash")):
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
+    return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+
+
 @dataclass
 class GameMaster:
     """Keeps the chat history and talks to Gemini."""
@@ -50,20 +65,29 @@ class GameMaster:
     history: list[types.Content] = field(default_factory=list)
     escaped: bool = False
 
-    def send(self, player_message: str) -> str:
-        """Send the player's message, return the Game Master's reply."""
-        self.history.append(
-            types.Content(role="user", parts=[types.Part(text=player_message)])
+    use_fast_thinking: bool = True
+
+    def _config(self) -> types.GenerateContentConfig:
+        return types.GenerateContentConfig(
+            system_instruction=self.system_prompt,
+            temperature=0.8,
+            thinking_config=fast_thinking_config(self.model) if self.use_fast_thinking else None,
         )
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=self.history,
-            config=types.GenerateContentConfig(
-                system_instruction=self.system_prompt,
-                temperature=0.8,
-            ),
-        )
-        reply = (response.text or "").strip()
+
+    def _call(self, method: str):
+        """Call Gemini; if the model rejects the thinking setting, retry once without it."""
+        try:
+            return getattr(self.client.models, method)(
+                model=self.model, contents=self.history, config=self._config())
+        except Exception as exc:
+            if self.use_fast_thinking and "thinking" in str(exc).lower():
+                self.use_fast_thinking = False
+                return getattr(self.client.models, method)(
+                    model=self.model, contents=self.history, config=self._config())
+            raise
+
+    def _finish(self, reply: str) -> str:
+        reply = reply.strip()
         if not reply:
             reply = "The room is silent... (the Game Master did not respond, try again)"
 
@@ -76,3 +100,28 @@ class GameMaster:
             self.escaped = True
             reply = reply.replace(ESCAPE_MARKER, "").strip()
         return reply
+
+    def send(self, player_message: str) -> str:
+        """Send the player's message, return the Game Master's reply."""
+        self.history.append(
+            types.Content(role="user", parts=[types.Part(text=player_message)])
+        )
+        response = self._call("generate_content")
+        return self._finish(response.text or "")
+
+    def send_stream(self, player_message: str):
+        """Like ``send`` but yields the raw reply text chunk by chunk as it arrives.
+
+        After the generator is exhausted, ``self.last_reply`` holds the cleaned
+        reply (marker removed) and the history is updated.
+        """
+        self.history.append(
+            types.Content(role="user", parts=[types.Part(text=player_message)])
+        )
+        parts: list[str] = []
+        for chunk in self._call("generate_content_stream"):
+            text = getattr(chunk, "text", None)
+            if text:
+                parts.append(text)
+                yield text
+        self.last_reply = self._finish("".join(parts))

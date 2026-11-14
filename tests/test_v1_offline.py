@@ -28,6 +28,10 @@ class FakeModels:
         self.calls.append({"model": model, "contents": list(contents), "config": config})
         return SimpleNamespace(text=self.replies.pop(0))
 
+    def generate_content_stream(self, model, contents, config):
+        text = self.generate_content(model, contents, config).text
+        return iter([SimpleNamespace(text=text[i:i + 5]) for i in range(0, len(text), 5)])
+
 
 class FakeClient:
     def __init__(self, replies):
@@ -66,6 +70,17 @@ class GameMasterTests(unittest.TestCase):
         reply = gm.send("enter 1847 on the door")
         self.assertTrue(gm.escaped)
         self.assertNotIn(ESCAPE_MARKER, reply)
+
+    def test_streaming_reply_and_fast_thinking(self):
+        client = FakeClient([f"The door swings open!\n{ESCAPE_MARKER}"])
+        gm = game_master.GameMaster(client=client, model="gemini-3.8-flash")
+        chunks = list(gm.send_stream("enter 1847 on the door"))
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(gm.escaped)
+        self.assertEqual(gm.last_reply, "The door swings open!")
+        self.assertEqual(len(gm.history), 2)
+        thinking = client.models.calls[0]["config"].thinking_config
+        self.assertEqual(thinking.thinking_level, game_master.types.ThinkingLevel.LOW)
 
     def test_model_name_from_env(self):
         with mock.patch.dict(os.environ, {"GEMINI_MODEL": "gemini-x"}):
