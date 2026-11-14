@@ -75,7 +75,7 @@ flowchart LR
 
 - **Python 3.10+**
 - **[Streamlit](https://streamlit.io/)**: web chat interface
-- **[Google Gemini API](https://ai.google.dev/)** through the official **`google-genai`** SDK (free tier). Default model: `gemini-2.5-flash`
+- **[Google Gemini API](https://ai.google.dev/)** through the official **`google-genai`** SDK (free tier). Default model: `gemini-3.8-flash`
 - **python-dotenv**: loads settings from `.env`
 - **unittest** + Streamlit `AppTest`: offline tests with a fake Gemini client
 
@@ -108,7 +108,7 @@ Then open the URL Streamlit prints (usually http://localhost:8501).
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `GEMINI_API_KEY` | yes | – | Free key from [Google AI Studio](https://aistudio.google.com/apikey) |
-| `GEMINI_MODEL` | no | `gemini-2.5-flash` | Any Gemini model available to your key |
+| `GEMINI_MODEL` | no | `gemini-3.8-flash` | Any Gemini model available to your key |
 
 > 🔒 **Never commit your `.env` file.** It is listed in `.gitignore`. Only `.env.example` (with placeholder values) is in the repository.
 

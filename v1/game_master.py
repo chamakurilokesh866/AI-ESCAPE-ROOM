@@ -19,7 +19,7 @@ from v1.prompts import ESCAPE_MARKER, build_system_prompt
 
 load_dotenv()
 
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.8-flash"
 
 
 def get_model_name() -> str:
