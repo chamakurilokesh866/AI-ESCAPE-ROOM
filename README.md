@@ -168,6 +168,7 @@ flowchart TB
 | 9 | Every turn sends the full history, which grows without limit. | Memory = chat history. | Parser gets 1–2 messages, narrator gets the last 3 turns + a one-line state summary. | Faster, cheaper, fewer free-tier 429s, and less room for the model to get confused by old text. |
 | 10 | Wrong JSON / free text from the model would break any parsing. | (V1 used free text only.) | `response_schema` forces JSON; it is validated with Pydantic; invalid output falls back to the keyword parser. | Structured output makes the LLM's job checkable. |
 | 11 | **Slow replies (found in live play).** Several seconds of spinner per turn. | `gemini-3.8-flash` thinks at level *medium* by default, and the whole reply had to finish before anything was shown. (The first V2 build made it worse with two Gemini calls per turn.) | Keyword fast path (one call for plain commands), lowest thinking level, output caps, streamed narration through the leak guard, shorter retry waits. Details in [Performance](#performance). V1 got a minor patch (lowest thinking level + streaming) so the comparison stays fair. | A game has to feel responsive; none of these changes moves a decision from Python to the LLM. |
+| 12 | **Still slow: free-tier quota (found in live play).** Replies kept stalling after the speed fixes. | Timing each model with the real key showed `gemini-3.8-flash` returning `429 RESOURCE_EXHAUSTED` (free-tier quota used up), so every turn first burned retries on the main model before falling back. `gemini-3.5-flash-lite` answered in ~1-2 s and `gemini-3.1-flash-lite` in ~1 s. | Default model changed to `gemini-3.5-flash-lite` with `gemini-3.1-flash-lite` as fallback (both V1 and V2); `gemini-3.8-flash` can still be chosen via `GEMINI_MODEL`. | For a short game turn a lite model is fast enough in quality, and measuring beat guessing. |
 
 ## 5. Test cases
 
@@ -204,7 +205,7 @@ Current result: **91 tests, all passing** (9 for V1, 82 for V2: engine, LLM wrap
 
 - **Python 3.10+**
 - **[Streamlit](https://streamlit.io/)**: web chat interface
-- **[Google Gemini API](https://ai.google.dev/)** through the official **`google-genai`** SDK (free tier). Default model: `gemini-3.8-flash`
+- **[Google Gemini API](https://ai.google.dev/)** through the official **`google-genai`** SDK (free tier). Default model: `gemini-3.5-flash-lite` (fallback `gemini-3.1-flash-lite`)
 - **Pydantic** (installed with `google-genai`): the JSON schema for Gemini's structured output
 - **python-dotenv**: loads settings from `.env`
 - **unittest** + Streamlit `AppTest`: offline tests with a fake Gemini client
@@ -243,8 +244,8 @@ V2 also starts **without** an API key: it then runs in offline mode with the key
 | Variable | Required | Default | Used by | Description |
 |---|---|---|---|---|
 | `GEMINI_API_KEY` | yes (V1), optional (V2) | – | V1, V2 | Free key from [Google AI Studio](https://aistudio.google.com/apikey) |
-| `GEMINI_MODEL` | no | `gemini-3.8-flash` | V1, V2 | Main Gemini model |
-| `GEMINI_FALLBACK_MODEL` | no | `gemini-3.5-flash-lite` | V2 | Used on 404 or when retries for the main model are used up. `none` disables it. |
+| `GEMINI_MODEL` | no | `gemini-3.5-flash-lite` | V1, V2 | Main Gemini model |
+| `GEMINI_FALLBACK_MODEL` | no | `gemini-3.1-flash-lite` | V2 | Used on 404 or when retries for the main model are used up. `none` disables it. |
 | `GEMINI_MAX_RETRIES` | no | `2` | V2 | Retries per model for 429/5xx/network errors (backoff 0.5 s, 1 s, 2 s …) |
 | `GEMINI_THINKING` | no | `fast` | V2 | `fast` = lowest thinking level the model supports (quick replies); `default` = the model's own default |
 

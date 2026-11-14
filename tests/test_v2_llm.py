@@ -73,9 +73,9 @@ class RetryTests(unittest.TestCase):
 class ConfigTests(unittest.TestCase):
     def test_defaults(self):
         with mock.patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODEL": "", "GEMINI_MAX_RETRIES": ""}):
-            self.assertEqual(llm_mod.get_model_name(), "gemini-3.8-flash")
+            self.assertEqual(llm_mod.get_model_name(), "gemini-3.5-flash-lite")
             self.assertEqual(llm_mod.get_fallback_model(), llm_mod.DEFAULT_FALLBACK_MODEL)
-            self.assertEqual(llm_mod.DEFAULT_FALLBACK_MODEL, "gemini-3.5-flash-lite")
+            self.assertEqual(llm_mod.DEFAULT_FALLBACK_MODEL, "gemini-3.1-flash-lite")
             self.assertEqual(llm_mod.get_max_retries(), 2)
 
     def test_fallback_can_be_disabled(self):
