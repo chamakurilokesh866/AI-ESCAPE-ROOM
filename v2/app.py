@@ -2,9 +2,15 @@
 
 Run from the repository root:
     streamlit run v2/app.py
+
+The UI only *shows* the game. Python (v2.engine) still decides every action,
+Gemini still never sees the codes, and narration is still streamed through the
+leak guard before it reaches the screen. Quick-action and examine buttons just
+send ordinary text commands through the same Game.turn() pipeline as typing.
 """
 
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -12,10 +18,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import streamlit as st  # noqa: E402
 
 from v2 import llm as llm_mod  # noqa: E402
+from v2 import ui  # noqa: E402
 from v2.game import OPENING_MESSAGE, Game  # noqa: E402
-from v2.room import PUZZLES, FINAL_CHALLENGE  # noqa: E402
+from v2.room import FINAL_CHALLENGE, PUZZLES, TITLE  # noqa: E402
 
-st.set_page_config(page_title="AI Escape Room - V2", page_icon="🔐", layout="wide")
+st.set_page_config(page_title="AI Escape Room · The Locked Library", page_icon="🔐",
+                   layout="wide", initial_sidebar_state="collapsed")
+
+STORY = ("You wake on a cold wooden floor, surrounded by towering shelves and the smell of old "
+         "paper. The only exit is a heavy oak door with a four-digit keypad. Search the room, "
+         "solve three puzzles and find the code before the candle burns out.")
+QUICK_ACTIONS = [("👀 Look around", "look"), ("💡 Hint", "hint"),
+                 ("🎒 Inventory", "inventory"), ("❓ Help", "help")]
+AVATARS = {"assistant": "🧙", "user": "🧑"}
 
 
 @st.cache_resource(show_spinner=False)
@@ -36,19 +51,34 @@ def new_game() -> None:
     st.session_state.game = Game(llm=llm)
     st.session_state.messages = [{"role": "assistant", "content": OPENING_MESSAGE, "notices": []}]
     st.session_state.last = None
+    st.session_state.hints_used = 0
+    st.session_state.wrong_codes = 0  # all wrong codes (the engine resets its counter on success)
+    st.session_state.start_time = time.time()
+    st.session_state.end_time = None
+    st.session_state.celebrated = False
+    st.session_state.pending = None
+
+
+def queue_command(command: str) -> None:
+    """Button callback: the command is played on this rerun, exactly as if typed."""
+    st.session_state.pending = command
 
 
 if "game" not in st.session_state:
     new_game()
 
 game: Game = st.session_state.game
+st.html(ui.CSS)
 
 # ---------------------------------------------------------------- sidebar
 with st.sidebar:
+    if st.button("🔄 Restart game", width="stretch", type="primary"):
+        new_game()
+        st.rerun()
     st.header("How to play")
     st.markdown(
         """
-You are trapped in a locked library. Type what you want to do in plain English:
+Type what you want to do in plain English, or use the buttons:
 - *examine the bookshelf*
 - *take the magnifying glass*
 - *read the note*
@@ -60,9 +90,6 @@ Commands: **look**, **inventory**, **hint**, **help**.
 **Goal:** solve three puzzles, find the door code and escape.
 """
     )
-    if st.button("🔄 Restart game", width="stretch"):
-        new_game()
-        st.rerun()
     st.divider()
     st.caption("Version 2 · Python enforces the rules, Gemini narrates")
     if game.offline:
@@ -72,8 +99,9 @@ Commands: **look**, **inventory**, **hint**, **help**.
         st.caption(f"Fallback: `{game.llm.fallback_model or 'disabled'}` · retries: {game.llm.max_retries}")
 
 # ---------------------------------------------------------------- header
-st.title("🔐 AI Escape Room")
-st.caption("Version 2 - Reliable AI Escape Room: structured game state, action validation and guardrails")
+mode = "Offline mode" if game.offline else f"Gemini · {game.llm.model}"
+st.markdown(ui.hero_html(TITLE, STORY, mode), unsafe_allow_html=True)
+stats_slot = st.container()  # filled at the end so it shows the state *after* this turn
 
 if st.session_state.get("startup_error"):
     st.error(st.session_state.startup_error)
@@ -81,30 +109,34 @@ if game.offline:
     st.info(
         "**Offline mode:** `GEMINI_API_KEY` is not set, so the game uses its built-in "
         "keyword parser and descriptions. Add your key to `.env` and restart for "
-        "Gemini narration (free key: https://aistudio.google.com/apikey)."
+        "Gemini narration (free key: https://aistudio.google.com/apikey).",
+        icon="🕯️",
     )
+win_slot = st.container()
 
-state = game.state
-chat_col, state_col = st.columns([3, 2], gap="large")
+chat_col, side_col = st.columns([7, 5], gap="large")
 
-# ---------------------------------------------------------------- chat
+# ---------------------------------------------------------------- chat log
 with chat_col:
-    chat_box = st.container(height=560, border=False)  # scrolls; the state panel stays visible
+    # Scrolls and sticks to the newest message; the room panel stays in view.
+    chat_box = st.container(height=600, border=False, key="chatlog", autoscroll=True)
     for msg in st.session_state.messages:
-        avatar = "🧙" if msg["role"] == "assistant" else "🧑"
-        with chat_box.chat_message(msg["role"], avatar=avatar):
+        with chat_box.chat_message(msg["role"], avatar=AVATARS[msg["role"]]):
             st.markdown(msg["content"])
             for notice in msg.get("notices", []):
                 st.warning(notice, icon="⚠️")
+    quick_slot = st.container(key="quick")
 
-# ---------------------------------------------------------------- input
-prompt = st.chat_input("What do you do?", disabled=game.state.escaped)
-if prompt:
-    with chat_box.chat_message("user", avatar="🧑"):
+# ---------------------------------------------------------------- play a turn
+typed = st.chat_input("What do you do?  (e.g. examine the painting)", disabled=game.state.escaped)
+prompt = typed or st.session_state.pop("pending", None)
+st.session_state.pending = None
+if prompt and not game.state.escaped:
+    with chat_box.chat_message("user", avatar=AVATARS["user"]):
         st.markdown(prompt)
-    with chat_box.chat_message("assistant", avatar="🧙"):
+    with chat_box.chat_message("assistant", avatar=AVATARS["assistant"]):
         placeholder = st.empty()
-        placeholder.markdown("_The Game Master is thinking..._")
+        placeholder.markdown("_🕯️ The Game Master is thinking..._")
         # Narration streams in as Gemini writes it (already checked by the leak guard).
         result = game.turn(prompt, on_text=lambda text: placeholder.markdown(text + " ▌"))
         placeholder.markdown(result.reply)
@@ -115,41 +147,71 @@ if prompt:
         {"role": "assistant", "content": result.reply, "notices": result.notices}
     )
     st.session_state.last = result
-    state = game.state  # the turn may have replaced the state object (rollback)
+    kind = result.outcome.kind if result.outcome is not None else ""
+    st.session_state.hints_used += kind == "hint"
+    st.session_state.wrong_codes += kind == "wrong_code"
 
-with chat_col:
-    if state.escaped:
-        st.success("🎉 You escaped the library! Press **Restart game** in the sidebar to play again.")
+state = game.state  # the turn may have replaced the state object (rollback)
+if state.escaped and st.session_state.end_time is None:
+    st.session_state.end_time = time.time()
+escaped = state.escaped
+done, total = state.progress()
+wrong = st.session_state.wrong_codes
+start, end = st.session_state.start_time, st.session_state.end_time
+
+# ---------------------------------------------------------------- stats strip
+with stats_slot:
+    # Only integers go into this HTML (no player or LLM text), so the iframe is safe.
+    st.iframe(
+        ui.stats_bar_html(state.turn, st.session_state.hints_used, wrong, done, total,
+                          int(start * 1000), None if end is None else int(end * 1000)),
+        height=72,
+    )
+
+# ---------------------------------------------------------------- win screen
+if escaped:
+    with win_slot:
+        st.markdown(ui.win_html(state.turn, ui.fmt_duration((end or time.time()) - start),
+                                st.session_state.hints_used, wrong), unsafe_allow_html=True)
+        if st.button("🔁 Play again", type="primary", key="play_again"):
+            new_game()
+            st.rerun()
+    if not st.session_state.celebrated:
         st.balloons()
+        st.session_state.celebrated = True
 
-# ---------------------------------------------------------------- state panel
-with state_col:
-    st.subheader("🗺️ Game state")
-    done, total = state.progress()
-    st.progress(done / total, text=f"Progress: {done}/{total} steps")
+# ---------------------------------------------------------------- quick actions
+with quick_slot:
+    cols = st.columns(len(QUICK_ACTIONS))
+    for col, (label, command) in zip(cols, QUICK_ACTIONS):
+        col.button(label, key=f"qa_{command}", on_click=queue_command, args=(command,),
+                   disabled=escaped, width="stretch")
 
-    st.markdown("**Puzzles**")
-    for pid, label in PUZZLES.items():
-        st.markdown(f"{'✅' if pid in state.solved else '⬜'} {label}")
-    st.markdown(f"{'✅' if state.escaped else '⬜'} {FINAL_CHALLENGE}")
+# ---------------------------------------------------------------- room panel
+with side_col:
+    with st.container(key="panel_scene"):
+        st.markdown('<div class="panel-title">🏛️ The room</div>', unsafe_allow_html=True)
+        objects = ui.scene_objects(state)
+        for row in (objects[:3], objects[3:]):
+            for col, obj in zip(st.columns(3, gap="small"), row):
+                with col, st.container(key=f"objcard_{obj['key']}"):
+                    st.markdown(ui.card_html(obj), unsafe_allow_html=True)
+                    st.button("Examine", key=f"ex_{obj['key']}", icon="🔍",
+                              on_click=queue_command, args=(obj["command"],),
+                              disabled=escaped or not obj["enabled"], width="stretch")
 
-    st.markdown("**🎒 Inventory**")
-    st.markdown(" ".join(f"`{i}`" for i in state.inventory) or "_empty_")
+    with st.container(key="panel_inventory"):
+        st.markdown('<div class="panel-title">🎒 Inventory</div>', unsafe_allow_html=True)
+        st.markdown(ui.inventory_html(state.inventory), unsafe_allow_html=True)
 
-    f = state.flags
-    compartment = ("❔ not found" if not f["compartment_found"]
-                   else "🔓 open" if f["compartment_open"] else "🔒 locked")
-    st.markdown("**Room**")
-    st.markdown(
-        f"| Object | Status |\n|---|---|\n"
-        f"| Drawer | {'🔓 open' if f['drawer_unlocked'] else '🔒 locked'} |\n"
-        f"| Compartment | {compartment} |\n"
-        f"| Door | {'🚪 open' if f['door_open'] else '🔒 locked'} |"
-    )
-    st.caption(
-        f"Turn {state.turn} · wrong codes: drawer {state.wrong_attempts['drawer']}, "
-        f"door {state.wrong_attempts['door']}"
-    )
+    with st.container(key="panel_progress"):
+        st.markdown('<div class="panel-title">🧩 Progress</div>', unsafe_allow_html=True)
+        st.progress(done / total, text=f"{done} of {total} steps complete")
+        steps = [(label, pid in state.solved) for pid, label in PUZZLES.items()]
+        steps.append((FINAL_CHALLENGE, escaped))
+        st.markdown(ui.checklist_html(steps), unsafe_allow_html=True)
+        st.caption(f"Wrong codes this game: {wrong} · current attempts: drawer "
+                   f"{state.wrong_attempts['drawer']}, door {state.wrong_attempts['door']}")
 
     last = st.session_state.get("last")
     with st.expander("🔍 Last turn (how V2 decided)"):

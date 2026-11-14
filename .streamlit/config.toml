@@ -1,0 +1,16 @@
+# Shared Streamlit settings (read when you run `streamlit run ...` from the repo root).
+# Dark "old library" theme with a brass accent. V2 adds its own CSS on top of this.
+
+[theme]
+base = "dark"
+primaryColor = "#C9A24A"            # brass
+backgroundColor = "#14100C"         # dark walnut
+secondaryBackgroundColor = "#221A13" # leather
+textColor = "#EDE3D1"               # parchment
+font = "serif"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
