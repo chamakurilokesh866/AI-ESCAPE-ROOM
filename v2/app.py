@@ -93,9 +93,10 @@ chat_col, state_col = st.columns([3, 2], gap="large")
 
 # ---------------------------------------------------------------- chat
 with chat_col:
+    chat_box = st.container(height=560, border=False)  # scrolls; the state panel stays visible
     for msg in st.session_state.messages:
         avatar = "🧙" if msg["role"] == "assistant" else "🧑"
-        with st.chat_message(msg["role"], avatar=avatar):
+        with chat_box.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
             for notice in msg.get("notices", []):
                 st.warning(notice, icon="⚠️")
