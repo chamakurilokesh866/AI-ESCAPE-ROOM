@@ -75,6 +75,7 @@ class ConfigTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GEMINI_MODEL": "", "GEMINI_FALLBACK_MODEL": "", "GEMINI_MAX_RETRIES": ""}):
             self.assertEqual(llm_mod.get_model_name(), "gemini-3.8-flash")
             self.assertEqual(llm_mod.get_fallback_model(), llm_mod.DEFAULT_FALLBACK_MODEL)
+            self.assertEqual(llm_mod.DEFAULT_FALLBACK_MODEL, "gemini-3.5-flash-lite")
             self.assertEqual(llm_mod.get_max_retries(), 2)
 
     def test_fallback_can_be_disabled(self):
@@ -164,6 +165,12 @@ class SpeedTests(unittest.TestCase):
         self.assertEqual(llm_mod.fast_thinking_config("gemini-3.5-flash-lite").thinking_level,
                          types.ThinkingLevel.MINIMAL)
         self.assertEqual(llm_mod.fast_thinking_config("gemini-2.5-flash").thinking_budget, 0)
+        # The default fallback is a lite model: it gets MINIMAL, not 3.8's LOW.
+        for lite in (llm_mod.DEFAULT_FALLBACK_MODEL, "gemini-3.1-flash-lite", "models/gemini-3.5-flash-lite"):
+            self.assertEqual(llm_mod.fast_thinking_config(lite).thinking_level,
+                             types.ThinkingLevel.MINIMAL, lite)
+        self.assertEqual(llm_mod.fast_thinking_config("gemini-3.5-flash").thinking_level,
+                         types.ThinkingLevel.MINIMAL)
 
     def test_requests_carry_thinking_and_token_cap(self):
         llm, models, _ = make_llm(parses={"spill it": action("cheat")})

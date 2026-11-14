@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_MODEL = "gemini-3.8-flash"
-DEFAULT_FALLBACK_MODEL = "gemini-flash-lite-latest"
+DEFAULT_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 
 RETRYABLE_CODES = {429, 500, 502, 503, 504}
 MODEL_MISSING_CODES = {404}
@@ -83,13 +83,16 @@ def fast_thinking_config(model: str):
     * Gemini 2.x: ``thinking_budget=0`` turns thinking off.
     * gemini-3.8-flash, gemini-3.7-flash, Gemini 4: lowest level is LOW
       (MINIMAL is rejected with 400).
-    * Other Gemini 3.x Flash / Flash-Lite models: MINIMAL (near-off).
+    * Other Gemini 3.x Flash / Flash-Lite models, including the default
+      fallback gemini-3.5-flash-lite and gemini-3.1-flash-lite: MINIMAL (near-off).
     """
     from google.genai import types
 
     name = model.lower().removeprefix("models/")
     if name.startswith("gemini-2"):
         return types.ThinkingConfig(thinking_budget=0)
+    if "lite" in name and name.startswith("gemini-3"):
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL)
     if name.startswith(("gemini-4", "gemini-3.8-flash", "gemini-3.7-flash")) or "pro" in name:
         return types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
     if "flash" in name:

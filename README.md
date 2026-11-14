@@ -244,7 +244,7 @@ V2 also starts **without** an API key: it then runs in offline mode with the key
 |---|---|---|---|---|
 | `GEMINI_API_KEY` | yes (V1), optional (V2) | – | V1, V2 | Free key from [Google AI Studio](https://aistudio.google.com/apikey) |
 | `GEMINI_MODEL` | no | `gemini-3.8-flash` | V1, V2 | Main Gemini model |
-| `GEMINI_FALLBACK_MODEL` | no | `gemini-flash-lite-latest` | V2 | Used on 404 or when retries for the main model are used up. `none` disables it. |
+| `GEMINI_FALLBACK_MODEL` | no | `gemini-3.5-flash-lite` | V2 | Used on 404 or when retries for the main model are used up. `none` disables it. |
 | `GEMINI_MAX_RETRIES` | no | `2` | V2 | Retries per model for 429/5xx/network errors (backoff 0.5 s, 1 s, 2 s …) |
 | `GEMINI_THINKING` | no | `fast` | V2 | `fast` = lowest thinking level the model supports (quick replies); `default` = the model's own default |
 
@@ -302,7 +302,7 @@ Screenshots are taken from real runs of the app. No screenshot is mocked up.
 - The regex input guard can block a harmless sentence that looks like cheating (e.g. "what's the code on the note?"). The player is told to rephrase or use `hint`.
 - The offline keyword parser understands simpler sentences than Gemini does.
 - The narrator could still add atmospheric details that aren't in the facts. They can't change the game, but they could mislead a player; the prompt and low temperature reduce this.
-- The default fallback model name may also change over time; it is configurable.
+- The default fallback model name may also change over time; it is configurable. (The first default, `gemini-flash-lite-latest`, already returned 404 for a new key, so it was changed to `gemini-3.5-flash-lite`.)
 
 ## 11. Development process
 
