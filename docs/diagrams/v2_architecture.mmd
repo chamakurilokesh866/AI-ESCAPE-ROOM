@@ -1,0 +1,12 @@
+flowchart LR
+    P([Player]) --> UI[Streamlit UI<br/>room cards, stats, chat]
+    UI --> IG{Input<br/>guardrail}
+    IG -->|injection / admin| REF[Refusal<br/>state unchanged]
+    IG -->|normal action| PARSE[Intent parse<br/>fast path or Gemini JSON]
+    PARSE --> ENG[Python rule engine<br/>GameState; secrets in code]
+    ENG --> NAR[Narrator<br/>streamed Gemini<br/>facts + last 3 turns]
+    NAR --> OG{Output<br/>guardrail}
+    OG -->|clean text| OUT[Reply shown in the UI]
+    OG -->|leak or API down| TPL[Engine template<br/>shown instead]
+    LLM[LLM wrapper<br/>retry, fallback, offline] -.-> PARSE
+    LLM -.-> NAR

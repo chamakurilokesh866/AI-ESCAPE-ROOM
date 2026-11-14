@@ -1,0 +1,8 @@
+flowchart LR
+    P([Player]) --> UI[Streamlit chat UI<br/>v1/app.py]
+    UI --> GM[GameMaster<br/>v1/game_master.py]
+    GM -->|"system prompt with room and secrets<br/>plus the full chat history"| G[(Google Gemini API)]
+    G -->|"narrative reply<br/>optional ESCAPED marker"| GM
+    GM --> UI
+    R[Room design and rules<br/>v1/room.py, v1/prompts.py] --> GM
+    S[(session_state<br/>chat history)] <--> UI

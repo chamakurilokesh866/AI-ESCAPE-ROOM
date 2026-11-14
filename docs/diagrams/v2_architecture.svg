@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="450" viewBox="0 0 1400 450">
+  <rect width="1400" height="450" fill="#ffffff"/>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9.2" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3a556e"/>
+    </marker>
+    <style>
+      .box { fill: #e8eef5; stroke: #3a556e; stroke-width: 1.6; }
+      .diamond { fill: #e8eef5; stroke: #3a556e; stroke-width: 1.6; }
+      .stadium { fill: #e8eef5; stroke: #3a556e; stroke-width: 1.6; }
+      .t { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; fill: #1b1b1b; text-anchor: middle; }
+      .t1 { font-size: 16px; font-weight: 600; }
+      .t2 { font-size: 13.5px; font-weight: 400; }
+      .lab { font-family: "Liberation Sans", "DejaVu Sans", Arial, sans-serif; font-size: 12.5px; fill: #2f4a60; font-style: italic; text-anchor: middle; }
+      .edge { stroke: #3a556e; stroke-width: 1.7; fill: none; marker-end: url(#arrow); }
+      .dash { stroke: #3a556e; stroke-width: 1.5; fill: none; stroke-dasharray: 5.5 4; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <!-- ===== Row 1 ===== -->
+  <rect class="stadium" x="20" y="86" width="112" height="50" rx="25"/>
+  <text class="t t1" x="76" y="117">Player</text>
+
+  <rect class="box" x="172" y="66" width="200" height="90" rx="6"/>
+  <text class="t t1" x="272" y="102">Streamlit UI</text>
+  <text class="t t2" x="272" y="124">room cards, stats, chat</text>
+
+  <polygon class="diamond" points="510,111 435,46 360,111 435,176"/>
+  <text class="t t1" x="435" y="106">Input</text>
+  <text class="t t1" x="435" y="126">guardrail</text>
+
+  <rect class="box" x="590" y="16" width="210" height="68" rx="6"/>
+  <text class="t t1" x="695" y="44">Refusal</text>
+  <text class="t t2" x="695" y="64">state unchanged</text>
+
+  <rect class="box" x="590" y="122" width="236" height="78" rx="6"/>
+  <text class="t t1" x="708" y="152">Intent parse</text>
+  <text class="t t2" x="708" y="174">fast path or Gemini JSON</text>
+
+  <rect class="box" x="1110" y="24" width="260" height="78" rx="6"/>
+  <text class="t t1" x="1240" y="54">LLM wrapper</text>
+  <text class="t t2" x="1240" y="76">retry, fallback, offline</text>
+
+  <!-- ===== Row 2 ===== -->
+  <rect class="box" x="80" y="290" width="250" height="88" rx="6"/>
+  <text class="t t1" x="205" y="324">Python rule engine</text>
+  <text class="t t2" x="205" y="346">GameState; secrets in code</text>
+
+  <rect class="box" x="400" y="282" width="246" height="104" rx="6"/>
+  <text class="t t1" x="523" y="316">Narrator</text>
+  <text class="t t2" x="523" y="338">streamed Gemini</text>
+  <text class="t t2" x="523" y="358">facts + last 3 turns</text>
+
+  <polygon class="diamond" points="860,334 780,264 700,334 780,404"/>
+  <text class="t t1" x="780" y="328">Output</text>
+  <text class="t t1" x="780" y="348">guardrail</text>
+
+  <rect class="box" x="980" y="250" width="236" height="70" rx="6"/>
+  <text class="t t1" x="1098" y="280">Reply shown in the UI</text>
+  <text class="t t2" x="1098" y="300">clean narration</text>
+
+  <rect class="box" x="980" y="350" width="236" height="78" rx="6"/>
+  <text class="t t1" x="1098" y="380">Engine template</text>
+  <text class="t t2" x="1098" y="400">shown if leak or API down</text>
+
+  <!-- ===== Solid edges ===== -->
+  <!-- Player -> UI -->
+  <path class="edge" d="M132,111 H172"/>
+  <!-- UI -> guard -->
+  <path class="edge" d="M372,111 H360"/>
+  <!-- guard -> refusal -->
+  <path class="edge" d="M492,80 C530,50 550,50 590,50"/>
+  <text class="lab" x="530" y="22">injection / admin</text>
+  <!-- guard -> parse -->
+  <path class="edge" d="M498,130 C535,161 555,161 590,161"/>
+  <text class="lab" x="548" y="198">normal action</text>
+
+  <!-- parse -> engine (down, then left, then down) -->
+  <path class="edge" d="M708,200 V248 H205 V290"/>
+
+  <!-- engine -> narrator -->
+  <path class="edge" d="M330,334 H400"/>
+  <!-- narrator -> output guard -->
+  <path class="edge" d="M646,334 H700"/>
+  <!-- output -> reply -->
+  <path class="edge" d="M848,310 C900,285 930,285 980,285"/>
+  <text class="lab" x="900" y="268">clean text</text>
+  <!-- output -> template -->
+  <path class="edge" d="M848,358 C900,389 930,389 980,389"/>
+  <text class="lab" x="900" y="428">leak or API down</text>
+
+  <!-- ===== Dotted LLM edges ===== -->
+  <!-- LLM left -> parse right -->
+  <path class="dash" d="M1110,70 H860 V161 H826"/>
+  <!-- LLM bottom -> narrator top -->
+  <path class="dash" d="M1240,102 V216 H523 V282"/>
+</svg>
