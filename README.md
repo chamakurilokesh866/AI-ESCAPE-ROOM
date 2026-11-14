@@ -118,7 +118,7 @@ flowchart TB
 | `v2/llm.py` | Gemini wrapper: retries 429/500/502/503/504 and network errors with exponential backoff + jitter (0.5 s, 1 s …), switches to `GEMINI_FALLBACK_MODEL` on 404 or when retries are used up, fails fast on bad keys, and turns every error into a clear message. Sets the lowest thinking level per model and offers `generate_stream` for streamed text. |
 | `v2/narrator.py` | Builds the narration prompt: the engine's verdict and facts, a one-line state summary and only the **last 3 turns**. No secrets, no full history. |
 | `v2/game.py` | `Game.turn()`: guard → parse (fast path or Gemini) → validate/apply → invariant check → narrate (streamed) → output guard. Works without Gemini (offline mode). |
-| `v2/app.py` | Streamlit UI: chat plus a live state panel (progress bar, puzzle checklist, inventory, object status, wrong-code counters), a "how V2 decided" view of the last turn and the raw state JSON. Narration appears word by word as Gemini writes it; the Gemini client is created once and reused (`st.cache_resource`). |
+| `v2/app.py`, `v2/ui.py` | Streamlit UI: themed chat, stats strip with a live timer, room cards with status and Examine buttons, inventory chips, progress bar and puzzle checklist, quick-action buttons, a win screen (see [UI improvements](#ui-improvements-v2)), and, collapsed, a "how V2 decided" view of the last turn and the raw state JSON. Narration appears word by word as Gemini writes it; the Gemini client is created once and reused (`st.cache_resource`). |
 
 ### Design decisions
 
@@ -198,7 +198,7 @@ The **V1 column** describes what V1's design allows: V1 has no code that prevent
 python -m unittest discover -s tests -t . -v
 ```
 
-Current result: **83 tests, all passing** (9 for V1, 74 for V2: engine, LLM wrapper and guardrails, speed features (fast path, thinking level, streaming, streamed-leak guard), the scenarios above, an offline full playthrough and Streamlit `AppTest` checks of the UI).
+Current result: **91 tests, all passing** (9 for V1, 82 for V2: engine, LLM wrapper and guardrails, speed features (fast path, thinking level, streaming, streamed-leak guard), the scenarios above, an offline full playthrough and Streamlit `AppTest` checks of the UI, including the room cards, quick-action buttons and win screen).
 
 ## 6. Technologies
 
@@ -260,7 +260,8 @@ AI-ESCAPE-ROOM/
 │   ├── prompts.py            # Game Master system prompt (contains the room + codes)
 │   └── room.py               # Room, objects, items, puzzles
 ├── v2/                       # Version 2: Python rules, Gemini narration
-│   ├── app.py                # Streamlit UI with game-state panel
+│   ├── app.py                # Streamlit UI: room cards, quick actions, progress, win screen
+│   ├── ui.py                 # UI helpers: CSS theme, card/inventory/stats HTML (no Streamlit calls)
 │   ├── game.py               # turn pipeline
 │   ├── engine.py             # action validation + state changes + hints
 │   ├── state.py              # GameState + invariant checks
@@ -275,10 +276,12 @@ AI-ESCAPE-ROOM/
 │   ├── test_v2_engine.py
 │   ├── test_v2_llm.py
 │   ├── test_v2_scenarios.py  # the documented test cases TC1–TC12
-│   └── test_v2_app.py
+│   ├── test_v2_app.py
+│   └── test_v2_ui.py         # room cards, quick actions, examine buttons, win screen
 ├── docs/
 │   ├── report.md             # 2–3 page project report
 │   └── screenshots/
+├── .streamlit/config.toml    # dark library theme with brass accent
 ├── .env.example              # configuration template (no secrets)
 ├── requirements.txt
 └── README.md
@@ -288,11 +291,29 @@ AI-ESCAPE-ROOM/
 
 Screenshots are taken from real runs of the app. No screenshot is mocked up.
 
-**Version 2, offline mode** (no API key, keyword parser and engine text; same rules and state panel as with Gemini):
+**Version 2, offline mode** (no API key, so the keyword parser and the engine's own text are used. The rules, state and UI are the same as with Gemini). All of these come from a real headless run of `streamlit run v2/app.py`:
 
-| Start screen | Wrong code, admin trick and a false claim |
+| Start screen | Mid-game: drawer open, items collected |
 |---|---|
-| ![V2 start](docs/screenshots/v2_offline_start.png) | ![V2 guardrails](docs/screenshots/v2_offline_guardrails.png) |
+| ![V2 start, offline](docs/screenshots/v2_ui_start.png) | ![V2 mid-game, offline](docs/screenshots/v2_ui_midgame.png) |
+| **Admin trick blocked by the guardrail** | **"How V2 decided" debug view (expanded)** |
+| ![V2 guardrail, offline](docs/screenshots/v2_ui_guardrail.png) | ![V2 debug view, offline](docs/screenshots/v2_ui_debug_view.png) |
+| **Win screen with stats** | **Phone width (420 px)** |
+| ![V2 win screen, offline](docs/screenshots/v2_ui_win.png) | ![V2 on a phone, offline](docs/screenshots/v2_ui_mobile.png) |
+
+### UI improvements (V2)
+
+The first V2 UI was a plain chat next to a markdown table. It worked, but it did not feel like a game, and a player could not see at a glance what was locked or what to try next. The new UI changes only presentation. Every button sends an ordinary text command through the same `Game.turn()` pipeline as typing, so the engine, the guardrails, the fast path and the streamed leak filter are unchanged.
+
+- **Theme:** `.streamlit/config.toml` sets a dark walnut and brass theme, and `v2/ui.py` adds CSS on top: Cinzel headings, Lora body text, styled chat bubbles (Game Master on the left, player on the right), and cards with hover effects.
+- **Header:** a title card with a short story intro and a mode badge (Offline or the Gemini model). Below it is a stats strip with a live timer, moves, hints used, wrong codes and steps.
+- **Room scene:** the room's objects are shown as cards with a status pill: ✨ unexplored, 👁️ examined, 🔒 locked, 🔓 unlocked, ✅ solved, ❔ hidden. Each card has an **Examine** button. The compartment stays a "???" card until the painting has been examined.
+- **Inventory** is shown as item chips, and **progress** as a bar plus a puzzle checklist.
+- **Quick actions:** Look around, Hint, Inventory and Help buttons sit under the chat.
+- **Win screen:** balloons and a card showing moves, time, hints used and wrong codes, plus a **Play again** button.
+- **Debug views:** "How V2 decided" and the state JSON stay available, but collapsed in expanders.
+- **Responsive layout:** the columns stack on narrow screens and the stats strip shrinks to fit.
+- **Safety:** the live timer runs in a small iframe that only gets integers, never player or LLM text. All other HTML is escaped. A test checks that no code ever appears in the UI's HTML.
 
 **With Gemini:** screenshots of V1 and V2 running with a real `GEMINI_API_KEY` (including TC1–TC7 played live in both versions) will be added to [`docs/screenshots/`](docs/screenshots/) from live runs.
 
