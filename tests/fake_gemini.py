@@ -20,7 +20,8 @@ def action(verb, target="none", item="none", code="", other_name=""):
 
 
 class FakeModels:
-    def __init__(self, parses=None, narration="You do it.", errors=None):
+    def __init__(self, parses=None, narration="You do it.", errors=None, chunk_size=6):
+        self.chunk_size = chunk_size  # streamed narration is split into chunks of this size
         self.parses = parses or {}
         self.narration = narration
         self.errors = list(errors or [])  # exceptions raised by the first calls, in order
@@ -38,6 +39,14 @@ class FakeModels:
             return SimpleNamespace(text=json.dumps(parsed), parsed=None)
         text = self.narration(contents) if callable(self.narration) else self.narration
         return SimpleNamespace(text=text)
+
+    def generate_content_stream(self, model, contents, config):
+        """Streamed narration: same errors and text as generate_content, in chunks."""
+        response = self.generate_content(model, contents, config)
+        self.calls[-1]["stream"] = True
+        text = response.text or ""
+        return iter([SimpleNamespace(text=text[i:i + self.chunk_size])
+                     for i in range(0, len(text), self.chunk_size)])
 
     @property
     def parse_calls(self):

@@ -79,6 +79,15 @@ CLAIM_NOTE = "_(The game keeps its own record of what you've done, so claims abo
 REFUSAL_MESSAGE = _REFUSAL
 
 
+_DIGIT_SEPARATORS = re.compile(r"(?<=\d)[\s\-.,/_|:]+(?=\d)")
+_TRAILING_DIGITS = re.compile(r"\d[\d\s\-.,/_|:]*$")
+
+
+def _collapse_digits(text: str) -> str:
+    """Remove separators between digits, so any spacing of a code becomes '1847'."""
+    return _DIGIT_SEPARATORS.sub("", text)
+
+
 def _variants(code: str) -> list[str]:
     spaced = " ".join(code)
     return [code, spaced, "-".join(code), f"{code[:2]} {code[2:]}"]
@@ -106,4 +115,41 @@ def check_narration(text: str | None, state: GameState, player_message: str = ""
         for variant in _variants(code):
             if variant in text:
                 return False, "leaked_code"
+        if code in _collapse_digits(text):  # "58-42", "5 - 8 - 4 - 2", "5.8.4.2", ...
+            return False, "leaked_code"
     return True, ""
+
+
+class StreamGuard:
+    """Applies ``check_narration`` to text that is streamed to the screen.
+
+    Each chunk is added to a buffer and the whole buffer is checked before
+    anything is shown. A run of digits at the end of the buffer is held back
+    until it is complete (a non-digit follows), so even the first digits of a
+    code that is still being written never reach the player. If a leak (or runaway length) is detected, the
+    stream is stopped and the caller replaces the text with the engine's own.
+    """
+
+    def __init__(self, state: GameState, player_message: str = ""):
+        self.state = state
+        self.player_message = player_message
+        self.text = ""
+        self.blocked = ""
+
+    def feed(self, chunk: str) -> str | None:
+        """Add a chunk. Returns the text that is safe to display, or None if blocked."""
+        if self.blocked:
+            return None
+        self.text += chunk
+        ok, reason = check_narration(self.text, self.state, self.player_message)
+        if not ok and reason in ("leaked_code", "too_long"):
+            self.blocked = reason
+            return None
+        trailing = _TRAILING_DIGITS.search(self.text)
+        return self.text[:trailing.start()] if trailing else self.text
+
+    def finish(self) -> tuple[bool, str]:
+        """Final check on the complete text: (ok, reason)."""
+        if self.blocked:
+            return False, self.blocked
+        return check_narration(self.text, self.state, self.player_message)

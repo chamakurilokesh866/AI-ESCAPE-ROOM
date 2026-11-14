@@ -2,11 +2,12 @@
 
     player text
       -> guardrails.check_input      (Python: refuse injection / cheating)
-      -> parser.parse                (Gemini JSON intent, or keyword fallback)
+      -> parser.parse                (keyword fast path, Gemini JSON for ambiguous input)
       -> engine.apply                (Python: validate + update state)
       -> state.check_invariants      (Python: roll back if contradictory)
-      -> narrator.narrate            (Gemini: describe the verified result)
-      -> guardrails.check_narration  (Python: block leaks, else use template)
+      -> narrator.narrate(_stream)   (Gemini: describe the verified result, streamed)
+      -> guardrails.StreamGuard /    (Python: block leaks while streaming and on the
+         check_narration              final text, else use the engine's template)
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ class TurnResult:
     action: engine.Action | None = None
     outcome: engine.Outcome | None = None
     blocked: str = ""             # guardrail reason if refused
-    parser_source: str = ""       # 'gemini' or 'local'
+    parser_source: str = ""       # 'fast' (keyword, no API call), 'gemini' or 'local'
     narrated_by: str = ""         # 'gemini' or 'engine'
     notices: list[str] = field(default_factory=list)  # warnings for the UI
 
@@ -42,8 +43,9 @@ class TurnResult:
 
 
 class Game:
-    def __init__(self, llm=None):
+    def __init__(self, llm=None, fast_path: bool = True):
         self.llm = llm  # None -> offline mode (keyword parser + engine text)
+        self.fast_path = fast_path  # skip the Gemini parse when the keyword parser is sure
         self.state = GameState()
         self.recent: list[tuple[str, str]] = []  # (player, reply), last few turns only
         self.last_player_message: str | None = None
@@ -57,7 +59,9 @@ class Game:
         del self.recent[:-narrator.CONTEXT_TURNS]
         self.last_player_message = player
 
-    def turn(self, text: str) -> TurnResult:
+    def turn(self, text: str, on_text=None) -> TurnResult:
+        """Play one turn. ``on_text(str)``, if given, receives the narration as it
+        streams (always text that already passed the leak guard)."""
         text = (text or "").strip()
         check = guardrails.check_input(text)
         if not check.allowed:
@@ -69,7 +73,8 @@ class Game:
         notices: list[str] = []
         # 1. Parse intent
         try:
-            action, cheat, source = parser.parse(self.llm, text, self.last_player_message)
+            action, cheat, source = parser.parse(self.llm, text, self.last_player_message,
+                                                 fast_path=self.fast_path)
         except (LLMError, parser.ParseError) as exc:
             message = getattr(exc, "user_message", str(exc))
             notices.append(f"{message} Using the offline parser for this turn.")
@@ -92,8 +97,7 @@ class Game:
         reply, narrated_by = outcome.message, "engine"
         if self.llm is not None and outcome.kind not in DETERMINISTIC_KINDS:
             try:
-                text_out = narrator.narrate(self.llm, self.state, outcome, text, self.recent)
-                ok, reason = guardrails.check_narration(text_out, self.state, text)
+                text_out, ok, reason = self._narrate(outcome, text, on_text)
                 if ok:
                     reply, narrated_by = text_out, "gemini"
                 elif reason == "leaked_code":
@@ -103,6 +107,24 @@ class Game:
         if check.claim:
             reply = f"{reply}\n\n{guardrails.CLAIM_NOTE}"
 
+        if on_text is not None:
+            on_text(reply)  # final text (replaces the stream if the guard rejected it)
         self._remember(text, reply)
         return TurnResult(reply, action, outcome, parser_source=source,
                           narrated_by=narrated_by, notices=notices)
+
+    def _narrate(self, outcome, text: str, on_text) -> tuple[str, bool, str]:
+        """Return (narration, ok, reason). Streams through the leak guard if ``on_text`` is set."""
+        if on_text is None:
+            text_out = narrator.narrate(self.llm, self.state, outcome, text, self.recent)
+            ok, reason = guardrails.check_narration(text_out, self.state, text)
+            return text_out, ok, reason
+        guard = guardrails.StreamGuard(self.state, text)
+        for chunk in narrator.narrate_stream(self.llm, self.state, outcome, text, self.recent):
+            safe = guard.feed(chunk)
+            if safe is None:
+                break  # leak or runaway output: stop reading, use the engine's text
+            if safe:
+                on_text(safe)
+        ok, reason = guard.finish()
+        return guard.text.strip(), ok, reason

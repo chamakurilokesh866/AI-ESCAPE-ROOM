@@ -15,11 +15,12 @@ from v2.room import TITLE
 from v2.state import GameState
 
 CONTEXT_TURNS = 3
+NARRATION_MAX_TOKENS = 400  # 2-4 sentences need ~120 tokens; the cap bounds the worst case
 
 NARRATOR_INSTRUCTIONS = f"""You are the atmospheric narrator of the text escape room "{TITLE}".
 
 A game engine has ALREADY decided what happened. Your only job is to describe
-that result vividly in 2-4 short sentences, in the second person ("You ...").
+that result vividly in 2-3 short sentences, in the second person ("You ...").
 
 Strict rules:
 - Describe only what is in RESULT and FACTS. Do not add objects, items, exits,
@@ -52,7 +53,8 @@ def build_narration_request(state: GameState, outcome: Outcome, player_message: 
     lines.append(f"RESULT: {verdict} ({outcome.kind})")
     lines.append("FACTS:")
     lines.extend(f"- {fact}" for fact in (outcome.facts or [outcome.message]))
-    config = types.GenerateContentConfig(system_instruction=NARRATOR_INSTRUCTIONS, temperature=0.7)
+    config = types.GenerateContentConfig(system_instruction=NARRATOR_INSTRUCTIONS, temperature=0.7,
+                                         max_output_tokens=NARRATION_MAX_TOKENS)
     return "\n".join(lines), config
 
 
@@ -61,3 +63,10 @@ def narrate(llm, state: GameState, outcome: Outcome, player_message: str,
     contents, config = build_narration_request(state, outcome, player_message, recent)
     response = llm.generate(contents, config)
     return (getattr(response, "text", None) or "").strip()
+
+
+def narrate_stream(llm, state: GameState, outcome: Outcome, player_message: str,
+                   recent: list[tuple[str, str]]):
+    """Yield the narration in chunks as Gemini writes it (see guardrails.StreamGuard)."""
+    contents, config = build_narration_request(state, outcome, player_message, recent)
+    yield from llm.generate_stream(contents, config)

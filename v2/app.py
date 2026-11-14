@@ -18,12 +18,19 @@ from v2.room import PUZZLES, FINAL_CHALLENGE  # noqa: E402
 st.set_page_config(page_title="AI Escape Room - V2", page_icon="🔐", layout="wide")
 
 
+@st.cache_resource(show_spinner=False)
+def gemini_client(api_key: str):
+    """One Gemini client per key, reused across turns, restarts and reruns
+    (keeps the HTTPS connection warm instead of reconnecting every game)."""
+    return llm_mod.make_client(api_key)
+
+
 def new_game() -> None:
     llm = None
     st.session_state.startup_error = None
     if llm_mod.get_api_key():
         try:
-            llm = llm_mod.LLM(llm_mod.make_client())
+            llm = llm_mod.LLM(gemini_client(llm_mod.get_api_key()))
         except Exception as exc:  # e.g. SDK not installed
             st.session_state.startup_error = f"Could not create the Gemini client: {exc}"
     st.session_state.game = Game(llm=llm)
@@ -77,17 +84,6 @@ if game.offline:
         "Gemini narration (free key: https://aistudio.google.com/apikey)."
     )
 
-# ---------------------------------------------------------------- input
-prompt = st.chat_input("What do you do?", disabled=game.state.escaped)
-if prompt:
-    with st.spinner("The Game Master is thinking..."):
-        result = game.turn(prompt)
-    st.session_state.messages.append({"role": "user", "content": prompt, "notices": []})
-    st.session_state.messages.append(
-        {"role": "assistant", "content": result.reply, "notices": result.notices}
-    )
-    st.session_state.last = result
-
 state = game.state
 chat_col, state_col = st.columns([3, 2], gap="large")
 
@@ -100,6 +96,28 @@ with chat_col:
             st.markdown(msg["content"])
             for notice in msg.get("notices", []):
                 st.warning(notice, icon="⚠️")
+
+# ---------------------------------------------------------------- input
+prompt = st.chat_input("What do you do?", disabled=game.state.escaped)
+if prompt:
+    with chat_box.chat_message("user", avatar="🧑"):
+        st.markdown(prompt)
+    with chat_box.chat_message("assistant", avatar="🧙"):
+        placeholder = st.empty()
+        placeholder.markdown("_The Game Master is thinking..._")
+        # Narration streams in as Gemini writes it (already checked by the leak guard).
+        result = game.turn(prompt, on_text=lambda text: placeholder.markdown(text + " ▌"))
+        placeholder.markdown(result.reply)
+        for notice in result.notices:
+            st.warning(notice, icon="⚠️")
+    st.session_state.messages.append({"role": "user", "content": prompt, "notices": []})
+    st.session_state.messages.append(
+        {"role": "assistant", "content": result.reply, "notices": result.notices}
+    )
+    st.session_state.last = result
+    state = game.state  # the turn may have replaced the state object (rollback)
+
+with chat_col:
     if state.escaped:
         st.success("🎉 You escaped the library! Press **Restart game** in the sidebar to play again.")
         st.balloons()
@@ -142,7 +160,8 @@ with state_col:
         else:
             a = last.action
             st.markdown(
-                f"- Parsed by: **{last.parser_source}**\n"
+                f"- Parsed by: **{last.parser_source}**"
+                f"{' (keyword fast path, no Gemini call)' if last.parser_source == 'fast' else ''}\n"
                 f"- Action: `{a.verb}` target=`{a.target or a.raw_target}` item=`{a.item}` code=`{a.code}`\n"
                 f"- Engine verdict: **{'allowed' if last.outcome.ok else 'refused'}** (`{last.outcome.kind}`)\n"
                 f"- Narrated by: **{last.narrated_by}**"
