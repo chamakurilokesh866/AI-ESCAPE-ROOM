@@ -162,11 +162,15 @@ def local_parse(message: str) -> Action:
     if digits:
         return Action("enter_code", target=target, code=digits)
 
-    verb = "unknown"
+    # The verb that appears LAST wins, so "I already opened the drawer, I take the
+    # diary" is read as "take the diary" (the claim at the start is ignored).
+    if re.match(r"^\s*(look|look around|l|where am i)\s*[.!?]*$", text):
+        return Action("look")
+    verb, verb_pos = "unknown", -1
     for v, pattern in _VERB_WORDS:
-        if re.search(pattern, text):
-            verb = v
-            break
+        for m in re.finditer(pattern, text):
+            if m.start() > verb_pos:
+                verb, verb_pos = v, m.start()
 
     # find mentioned names in order of appearance
     found: list[tuple[int, str]] = []
@@ -178,13 +182,13 @@ def local_parse(message: str) -> Action:
                 found.append((m.start(), canon))
                 break
     found.sort()
+    if verb_pos >= 0 and any(pos > verb_pos for pos, _ in found):
+        found = [(pos, n) for pos, n in found if pos > verb_pos]  # names after the verb
     names = []
     for _, n in found:
         if n not in names:
             names.append(n)
     # "brass key" also matches "key" -> fine; "magnifying glass" vs "glass" handled by longest alias
-    if verb == "unknown" and re.match(r"^\s*look( around)?\s*$", text):
-        verb = "look"
     if verb == "examine" and not names and re.search(r"\b(around|room)\b", text):
         return Action("look")
     if verb == "use":
