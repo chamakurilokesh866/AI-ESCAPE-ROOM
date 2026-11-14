@@ -31,8 +31,13 @@ MODEL_MISSING_CODES = {404}
 AUTH_CODES = {401, 403}
 
 
+PLACEHOLDER_KEYS = {"your-gemini-api-key-here", "changeme", "xxx"}
+
+
 def get_api_key() -> str | None:
-    return os.getenv("GEMINI_API_KEY", "").strip() or None
+    """The key from the environment; the .env.example placeholder counts as missing."""
+    key = os.getenv("GEMINI_API_KEY", "").strip()
+    return None if not key or key.lower() in PLACEHOLDER_KEYS else key
 
 
 def get_model_name() -> str:
